@@ -2,9 +2,11 @@ import traceback
 from dataclasses import dataclass
 from datetime import time, datetime
 from decimal import Decimal
+from os import write
+import json
 from typing import Union, Dict, List, Type, Tuple, Optional
 
-from longport.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
+from longbridge.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
     OrderSide, OrderStatus, OrderType as OrderTypeLB, TimeInForceType, SecurityQuote, OutsideRTH, \
     PushCandlestick, TradeSession, Candlestick
 from numpy import sign
@@ -27,8 +29,15 @@ PositionMonitor.headers["pnl"]["display"] = "$ 盈亏"
 PositionMonitor.headers["pct_pnl"] = {"display": "% 盈亏", "cell": PnlCell, "update": True}
 PositionMonitor.headers["gateway_name"] = PositionMonitor.headers.pop("gateway_name")
 
+import gettext
+from pathlib import Path
+localedir = Path(__file__).parent
+translations: gettext.NullTranslations = gettext.translation('vnpy_ctastrategy', localedir=localedir, fallback=True)
+_ = translations.gettext
+
+
 # 交易所映射
-EXCHANGE_VT2LB: Dict = {
+EXCHANGE_VT2LB: dict = {
     Exchange.SMART: Market.US,
     Exchange.SEHK: Market.HK,
 }
@@ -41,7 +50,8 @@ INTERVAL_MAP: Dict[Interval, Type[Period]] = {
     Interval.WEEKLY: Period.Week,
 }
 
-STATUS_LB2VT: Dict[str, Status] = {
+# 订单状态映射 长桥的订单状态可以在 https://open.longbridge.com/zh-CN/docs/trade/trade-definition 查看
+STATUS_LB2VT: dict[str, Status] = {
     str(OrderStatus.NotReported): Status.SUBMITTING,
     str(OrderStatus.ReplacedNotReported): Status.SUBMITTING,
     str(OrderStatus.ProtectedNotReported): Status.SUBMITTING,
@@ -68,7 +78,8 @@ STATUS_PENDING_LB = [
     OrderStatus.WaitToCancel, OrderStatus.PendingCancel
 ]
 
-ORDER_TYPE_LB2VT: Dict[str, OrderTypeVN] = {
+# 订单类型映射 长桥的订单类型可以在 https://open.longbridge.com/zh-CN/docs/trade/trade-definition 查看
+ORDER_TYPE_LB2VT: dict[str, OrderTypeVN] = {
     str(OrderTypeLB.LO): OrderTypeVN.LIMIT,
     str(OrderTypeLB.ELO): OrderTypeVN.LIMIT,
     str(OrderTypeLB.MO): OrderTypeVN.MARKET,
@@ -112,6 +123,10 @@ def build_config_from_setting() -> Config:
         if value != "":
             params[key] = value
     return Config(**params)
+
+def build_config_from_setting() -> Config:
+    
+    return Config.from_apikey(**params)
 
 
 class LongBridgeGateway(BaseGateway):
@@ -227,11 +242,13 @@ class LongBridgeGateway(BaseGateway):
         pass
 
     def subscribe_symbols(self, symbols: List[str]) -> None:
+        self.write_log("subscribe_symbols")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
             symbol not in self.symbol_names])
 
     def load_contract(self, symbols: List[str]) -> None:
+        self.write_log("load_contract")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
             symbol not in self.symbol_names], contract_only=True)
@@ -256,7 +273,7 @@ class LongBridgeGateway(BaseGateway):
             self.symbol_names[info.symbol] = info.name_en
         if contract_only:
             return
-        self.quote_ctx.subscribe(symbols, [SubType.Quote, SubType.Depth], True)
+        self.quote_ctx.subscribe(symbols, [SubType.Quote, SubType.Depth])
         for symbol in symbols:
             self.quote_ctx.subscribe_candlesticks(symbol, Period.Day)
             self.quote_ctx.subscribe_candlesticks(symbol, Period.Week)
@@ -272,7 +289,7 @@ class LongBridgeGateway(BaseGateway):
                 for position in channel.positions:
                     has_position = position.quantity != 0
             if not has_position:
-                self.write_log(f"ignore order of {symbol} for there is no position to close")
+                self.write_log(_("ignore order of {} for there is no position to close").format(symbol))
                 return ""
 
         pending_orders = self.trade_ctx.today_orders(symbol, status=STATUS_PENDING_LB)
@@ -350,17 +367,28 @@ class LongBridgeGateway(BaseGateway):
                 )
                 self.on_account(account)
 
+
     def query_position(self) -> None:
         position_ids = set()
         if self.main_engine:
-            position_ids = set([p.vt_positionid for p in self.main_engine.get_all_positions()])
+            position_ids = set([p.vt_positionid for p in self.main_engine.get_all_positions()]) # 获取“本地已经缓存的所有持仓”
+
+        self.write_log(f"查询持仓，当前本地缓存的持仓ID：{json.dumps(position_ids, default=str, ensure_ascii=False)}")
+
 
         for channel in self.trade_ctx.stock_positions().channels:
-            symbols = [stock.symbol for stock in channel.positions]
+            self.write_log(f"查询持仓，长桥账户持仓：{channel.positions}")
+            symbols = [stock.symbol for stock in channel.positions]   # 长桥的期权行情需要购买，如果持仓有期权，可能会报错.
+            self.write_log(f"查询持仓，长桥账户持仓的股票代码：{symbols}，准备订阅这些股票的行情以获取最新价格")
+
             self.subscribe_batch([
                 SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
                 symbol not in self.symbol_names])
+
             quotes = self.quote_ctx.realtime_quote(symbols)
+            self.write_log(f"查询持仓，获取到的最新行情：{quotes}，准备转换成 PositionData 并推送")
+
+            print(list(zip(quotes, channel.positions)))
             for quote, stock in zip(quotes, channel.positions):
                 assert quote.symbol == stock.symbol
                 s, ex = convert_symbol_lb2vt(stock.symbol)
@@ -368,17 +396,17 @@ class LongBridgeGateway(BaseGateway):
                     symbol=s,
                     exchange=ex,
                     gateway_name=self.gateway_name,
-                    direction=Direction.LONG if stock.quantity >= 0 else Direction.SHORT,
-                    price=float(stock.cost_price),
-                    frozen=float(stock.quantity - stock.available_quantity),
-                    volume=stock.quantity,
-                    pnl=round(float((quote.last_done - stock.cost_price) * stock.quantity), 2),
+                    direction=Direction.LONG if stock.quantity >= 0 else Direction.SHORT, # 数量 > 0 → 多头，数量 < 0 → 空头
+                    price=float(stock.cost_price), # 持仓成本价
+                    frozen=float(stock.quantity - stock.available_quantity), # 冻结数量，eg:总持仓100股，可卖80股, 说明20股被冻结（挂单中等）
+                    volume=stock.quantity, # 持仓总量
+                    pnl=round(float((quote.last_done - stock.cost_price) * stock.quantity), 2), # 盈亏计算
                 )
-                position.pct_pnl = round(float(quote.last_done / stock.cost_price - 1) * 100 * sign(stock.quantity), 2)
-                self.on_position(position)
-                position_ids.discard(position.vt_positionid)
+                position.pct_pnl = round(float(quote.last_done / stock.cost_price - 1) * 100 * sign(stock.quantity), 2) # 百分比盈亏
+                self.on_position(position) # 推送到 vn.py，通知主引擎：“这里有最新持仓数据”，然后GUI更新，持仓监控更新，风控更新
+                position_ids.discard(position.vt_positionid) # position_ids.discard(position.vt_positionid)
 
-        if self.main_engine:
+        if self.main_engine: # 把“本地还有，但券商最新查询里已经消失”的持仓强制清零。
             for pos_id in position_ids:
                 position: PositionData = self.main_engine.get_position(pos_id)
                 if position is None or position.volume == 0:
@@ -386,6 +414,7 @@ class LongBridgeGateway(BaseGateway):
                 position.volume = 0
                 self.on_position(position)
 
+    # 持仓浮盈实时刷新器。当某只股票最新价格变化时，立即更新该持仓
     def update_position_on_tick(self, tick: TickData):
         if not self.main_engine:
             return
@@ -395,7 +424,8 @@ class LongBridgeGateway(BaseGateway):
                              direction=direction).vt_positionid)
             if position is None or position.volume == 0:
                 continue
-            position.pnl = round((tick.last_price - position.price) * position.volume, 2)
+
+            position.pnl = round((tick.last_price - position.price) * float(position.volume), 2)
             position.pct_pnl = round(float(tick.last_price / position.price - 1) * 100 * sign(position.volume), 2)
             self.on_position(position)
             break
@@ -424,7 +454,8 @@ class LongBridgeGateway(BaseGateway):
 
 
 def convert_symbol_lb2vt(code: str) -> (str, Exchange):
-    symbol, region = code.split(".", 2)
+    symbol, region = code.rsplit(".", 1)
+    print(symbol, region)
     exchange = EXCHANGE_LB2VT[region]
     return symbol, exchange
 

@@ -4,7 +4,9 @@ from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import create_qapp, MainWindow
 
 from vnpy_longbridge import LongBridgeGateway
-
+from vnpy_ctabacktester import CtaBacktesterApp
+from vnpy_ctastrategy import CtaStrategyApp
+from vnpy_longbridge.lb_strategy_app.LbStrategyApp import LbStrategyApp
 
 def main():
     qapp = create_qapp()
@@ -24,6 +26,7 @@ def main():
 
         lb_gw.after_connect = subscribe
 
+    main_engine.add_app(LbStrategyApp)
     main_window = MainWindow(main_engine, event_engine)
     main_window.showNormal()
 

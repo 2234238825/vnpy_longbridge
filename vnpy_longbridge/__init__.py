@@ -1,5 +1,6 @@
 from .longbridge_gateway import LongBridgeGateway
 from .longbridge_datafeed import LongBridgeDatafeed as Datafeed
+#from .LbStrategyApp import LbStrategyApp
 from vnpy.trader.setting import SETTINGS
 
 for arg in ["app_key", "app_secret", "access_token", "http_url", "quote_ws_url", "trade_ws_url"]:

@@ -1,13 +1,15 @@
 import zoneinfo
 from typing import Callable, Optional, List, Union
 
-from longport.openapi import QuoteContext, Config, AdjustType
+from longbridge.openapi import QuoteContext, Config, AdjustType
 from tzlocal import get_localzone_name
 from vnpy.trader.datafeed import BaseDatafeed
 from vnpy.trader.object import HistoryRequest, TickData, BarData
 
 from .longbridge_gateway import convert_symbol_vt2lb, INTERVAL_MAP, SHARED_CONTEXT, convert_candlestick_bar, \
     build_config_from_setting
+
+from vnpy_longbridge.lb_strategy_app.locale import _
 
 
 class LongBridgeDatafeed(BaseDatafeed):
@@ -28,6 +30,8 @@ class LongBridgeDatafeed(BaseDatafeed):
         return True
 
     def query_bar_history(self, req: HistoryRequest, output: Callable = print) -> Optional[List[BarData]]:
+
+        
         if not self.inited:
             self.init(output)
 
