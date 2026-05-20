@@ -8,7 +8,7 @@ from typing import Union, Dict, List, Type, Tuple, Optional
 
 from longbridge.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
     OrderSide, OrderStatus, OrderType as OrderTypeLB, TimeInForceType, SecurityQuote, OutsideRTH, \
-    PushCandlestick, TradeSession, Candlestick
+    PushCandlestick, TradeSession, Candlestick, OAuthBuilder
 from numpy import sign
 from vnpy.event import EventEngine, EVENT_TIMER, Event
 from vnpy.trader.constant import Direction, Exchange, Interval, Product, Status, OrderType as OrderTypeVN, Offset, \
@@ -115,19 +115,21 @@ class Context(object):
 SHARED_CONTEXT = Context()
 
 
-def build_config_from_setting() -> Config:
-    from vnpy.trader.setting import SETTINGS
-    params = {key: SETTINGS[f"longbridge.{key}"] for key in ["app_key", "app_secret", "access_token"]}
-    for key in ["http_url", "quote_ws_url", "trade_ws_url"]:
-        value = SETTINGS[f"longbridge.{key}"].strip()
-        if value != "":
-            params[key] = value
-    return Config(**params)
+# def build_config_from_setting() -> Config:
+#     from vnpy.trader.setting import SETTINGS
+#     params = {key: SETTINGS[f"longbridge.{key}"] for key in ["app_key", "app_secret", "access_token"]}
+#     for key in ["http_url", "quote_ws_url", "trade_ws_url"]:
+#         value = SETTINGS[f"longbridge.{key}"].strip()
+#         if value != "":
+#             params[key] = value
+#     return Config(**params)
 
 def build_config_from_setting() -> Config:
-    
-    return Config.from_apikey(**params)
-
+    oauth = OAuthBuilder("eefe225a-a748-44b5-b66b-a4993ddea744").build(
+        lambda url: print(f"请访问此 URL 进行授权：{url}")
+    )
+    #return Config.from_apikey(**params)
+    return Config.from_oauth(oauth)
 
 class LongBridgeGateway(BaseGateway):
     default_name = "LongBridge"
