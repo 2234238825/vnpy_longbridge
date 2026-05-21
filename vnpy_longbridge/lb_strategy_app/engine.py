@@ -792,7 +792,7 @@ class CtaEngine(BaseEngine):
         Load strategy class from source code.
         """
         path1: Path = Path(__file__).parent.joinpath("strategies")
-        self.load_strategy_class_from_folder(path1, "vnpy_ctastrategy.strategies")
+        self.load_strategy_class_from_folder(path1, "vnpy_longbridge.lb_strategy_app.strategies")
 
         path2: Path = Path.cwd().joinpath("strategies")
         self.load_strategy_class_from_folder(path2, "strategies")
@@ -821,7 +821,7 @@ class CtaEngine(BaseEngine):
             for name in dir(module):
                 value = getattr(module, name)
                 if (
-                    isinstance(value, type)
+                     isinstance(value, type)
                     and issubclass(value, CtaTemplate)
                     and value not in {CtaTemplate, TargetPosTemplate}
                 ):

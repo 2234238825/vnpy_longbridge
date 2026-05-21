@@ -375,22 +375,21 @@ class LongBridgeGateway(BaseGateway):
         if self.main_engine:
             position_ids = set([p.vt_positionid for p in self.main_engine.get_all_positions()]) # 获取“本地已经缓存的所有持仓”
 
-        self.write_log(f"查询持仓，当前本地缓存的持仓ID：{json.dumps(position_ids, default=str, ensure_ascii=False)}")
+        # self.write_log(f"查询持仓，当前本地缓存的持仓ID：{json.dumps(position_ids, default=str, ensure_ascii=False)}")
 
 
         for channel in self.trade_ctx.stock_positions().channels:
-            self.write_log(f"查询持仓，长桥账户持仓：{channel.positions}")
+            # self.write_log(f"查询持仓，长桥账户持仓：{channel.positions}")
             symbols = [stock.symbol for stock in channel.positions]   # 长桥的期权行情需要购买，如果持仓有期权，可能会报错.
-            self.write_log(f"查询持仓，长桥账户持仓的股票代码：{symbols}，准备订阅这些股票的行情以获取最新价格")
+            # self.write_log(f"查询持仓，长桥账户持仓的股票代码：{symbols}，准备订阅这些股票的行情以获取最新价格")
 
             self.subscribe_batch([
                 SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
                 symbol not in self.symbol_names])
 
             quotes = self.quote_ctx.realtime_quote(symbols)
-            self.write_log(f"查询持仓，获取到的最新行情：{quotes}，准备转换成 PositionData 并推送")
+            # self.write_log(f"查询持仓，获取到的最新行情：{quotes}，准备转换成 PositionData 并推送")
 
-            print(list(zip(quotes, channel.positions)))
             for quote, stock in zip(quotes, channel.positions):
                 assert quote.symbol == stock.symbol
                 s, ex = convert_symbol_lb2vt(stock.symbol)
@@ -457,7 +456,6 @@ class LongBridgeGateway(BaseGateway):
 
 def convert_symbol_lb2vt(code: str) -> (str, Exchange):
     symbol, region = code.rsplit(".", 1)
-    print(symbol, region)
     exchange = EXCHANGE_LB2VT[region]
     return symbol, exchange
 
