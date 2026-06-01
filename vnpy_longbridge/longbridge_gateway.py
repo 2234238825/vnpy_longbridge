@@ -4,7 +4,7 @@ from datetime import time, datetime
 from decimal import Decimal
 from os import write
 import json
-from typing import Union, Dict, List, Type, Tuple, Optional
+from typing import Union, Dict, List, Type, Tuple, Optional, Callable
 
 from longbridge.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
     OrderSide, OrderStatus, OrderType as OrderTypeLB, TimeInForceType, SecurityQuote, OutsideRTH, \
@@ -129,6 +129,7 @@ def build_config_from_setting() -> Config:
         lambda url: print(f"请访问此 URL 进行授权：{url}")
     )
     #return Config.from_apikey(**params)
+    Config.is_sandbox = True
     return Config.from_oauth(oauth)
 
 class LongBridgeGateway(BaseGateway):
@@ -141,7 +142,7 @@ class LongBridgeGateway(BaseGateway):
         self.quote_ctx: Optional[QuoteContext] = None
         self.trade_ctx: Optional[TradeContext] = None
         self.query_funcs: list = [self.query_account, self.query_order, self.query_position, self.query_trade]
-        self.after_connect: Optional[callable] = None
+        self.after_connect: Optional[Callable] = None
         self.currency: Currency = Currency.USD
         self.symbol_names = {}
         self.today_trading_session = None
@@ -312,6 +313,7 @@ class LongBridgeGateway(BaseGateway):
 
     def cancel_order(self, req: CancelRequest) -> None:
         self.write_log(f"order of {req.symbol} cancel, order_id={req.orderid}")
+        assert self.trade_ctx is not None
         self.trade_ctx.cancel_order(req.orderid)
 
     def query_order(self) -> None:
@@ -326,10 +328,10 @@ class LongBridgeGateway(BaseGateway):
                 exchange=ex,
                 orderid=order.order_id,
                 type=ORDER_TYPE_LB2VT[str(order.order_type)],
-                price=order.price if status not in [Status.PARTTRADED, Status.ALLTRADED] else float(
+                price=float(order.price) if status not in [Status.PARTTRADED, Status.ALLTRADED] else float(
                     "nan") if order.executed_price is None else float(order.executed_price),
-                volume=order.quantity,
-                traded=order.executed_quantity,
+                volume=float(order.quantity),
+                traded=float(order.executed_quantity),
                 status=status,
                 datetime=order.submitted_at,
                 reference=order.remark,
