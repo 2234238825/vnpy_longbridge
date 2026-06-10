@@ -47,15 +47,17 @@ oauth = OAuthBuilder("your-client-id").build(
 )
 config = Config.from_oauth(oauth)
 ```
-
-
-# 一、 执行流程
-1. 通过 `veighna_trader` 的 `run` 方法启动交易系统。
-2. 系统会自动加载配置文件中的策略、数据源和交易接口。
-3. 根据配置文件中的设置，系统会定时执行策略，获取市场数据，并根据策略的逻辑进行交易决策。
-4. 交易决策会通过交易接口发送到交易所进行执行。
-5. 系统会持续监控市场数据和订单状态，并根据策略的逻辑进行调整和优化。
+# K线tick数据推送的链路
+1. self.quote_ctx.set_on_quote(self.handle_quote)  告诉SDK，quote数据来了之后，调用handle_quote方法
+2. self.quote_ctx.subscribe_quote("HK.00700", "K_1M")  告诉SDK，订阅HK.00700的1分钟K线数据
+3. SDK收到数据后，调用handle_quote方法，传入数据。 这个handle_quote方法是由LongBridge SDK 自动回调。
+4. handle_quote 调用gateway.on_tick(tick)，gateway将数据封装成事件传给engine，self.event_engine.put(event)。
 
 
 
-# 二、 配置文件说明
+# 策略
+## atr_rsi_strategy.py
+
+
+
+

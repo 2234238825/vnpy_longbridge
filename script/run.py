@@ -21,8 +21,8 @@ def main():
         lb_gw.main_engine = main_engine
 
         def subscribe():
-            lb_gw.subscribe_symbols(["SPY.US", "QQQ.US", "NVDA.US"])
-            lb_gw.load_contract(["NVDA.US", "ARM.US"])
+            lb_gw.subscribe_symbols(["SPY.US", "QQQ.US", "NVDA.US", "02513.HK"])
+            lb_gw.load_contract(["07709.HK", "ARM.US", "NVDA.US"])
 
         lb_gw.after_connect = subscribe
 

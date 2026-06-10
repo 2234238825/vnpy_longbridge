@@ -4,7 +4,7 @@ from datetime import time, datetime
 from decimal import Decimal
 from os import write
 import json
-from typing import Union, Dict, List, Type, Tuple, Optional, Callable
+from collections.abc import Callable
 
 from longbridge.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
     OrderSide, OrderStatus, OrderType as OrderTypeLB, TimeInForceType, SecurityQuote, OutsideRTH, \
@@ -37,13 +37,14 @@ _ = translations.gettext
 
 
 # 交易所映射
-EXCHANGE_VT2LB: dict = {
+EXCHANGE_VT2LB: dict[Exchange, Market] = {
     Exchange.SMART: Market.US,
     Exchange.SEHK: Market.HK,
 }
-EXCHANGE_LB2VT: Dict[str, Exchange] = {str(v).split('.', 2)[1]: k for k, v in EXCHANGE_VT2LB.items()}
 
-INTERVAL_MAP: Dict[Interval, Type[Period]] = {
+EXCHANGE_LB2VT: dict[str, Exchange] = {str(v).split('.', 2)[1]: k for k, v in EXCHANGE_VT2LB.items()}
+
+INTERVAL_MAP: dict[Interval, type[Period]] = {
     Interval.MINUTE: Period.Min_1,
     Interval.HOUR: Period.Min_60,
     Interval.DAILY: Period.Day,
@@ -95,7 +96,7 @@ ORDER_TYPE_LB2VT: dict[str, OrderTypeVN] = {
     str(OrderTypeLB.SLO): OrderTypeVN.LIMIT,
 }
 
-ORDER_TYPE_VN2LB: Dict[OrderTypeVN, Type[OrderTypeLB]] = {
+ORDER_TYPE_VN2LB: dict[OrderTypeVN, type[OrderTypeLB]] = {
     OrderTypeVN.MARKET: OrderTypeLB.MO,
     OrderTypeVN.LIMIT: OrderTypeLB.LO,
     OrderTypeVN.STOP: OrderTypeLB.MIT,
@@ -107,22 +108,12 @@ class HistoryRequest(HistoryRequestVN):
     tail: int = None
 
 
-class Context(object):
+class Context:
     def __init__(self):
-        self.quote_ctx: Union[QuoteContext, None] = None
+        self.quote_ctx: QuoteContext | None = None
 
 
 SHARED_CONTEXT = Context()
-
-
-# def build_config_from_setting() -> Config:
-#     from vnpy.trader.setting import SETTINGS
-#     params = {key: SETTINGS[f"longbridge.{key}"] for key in ["app_key", "app_secret", "access_token"]}
-#     for key in ["http_url", "quote_ws_url", "trade_ws_url"]:
-#         value = SETTINGS[f"longbridge.{key}"].strip()
-#         if value != "":
-#             params[key] = value
-#     return Config(**params)
 
 def build_config_from_setting() -> Config:
     oauth = OAuthBuilder("eefe225a-a748-44b5-b66b-a4993ddea744").build(
@@ -138,11 +129,11 @@ class LongBridgeGateway(BaseGateway):
 
     def __init__(self, event_engine: EventEngine, gateway_name: str) -> None:
         super().__init__(event_engine, gateway_name)
-        self.main_engine: Optional[MainEngine] = None
-        self.quote_ctx: Optional[QuoteContext] = None
-        self.trade_ctx: Optional[TradeContext] = None
+        self.main_engine: MainEngine | None = None
+        self.quote_ctx: QuoteContext | None = None
+        self.trade_ctx: TradeContext | None = None
         self.query_funcs: list = [self.query_account, self.query_order, self.query_position, self.query_trade]
-        self.after_connect: Optional[Callable] = None
+        self.after_connect: Callable | None = None
         self.currency: Currency = Currency.USD
         self.symbol_names = {}
         self.today_trading_session = None
@@ -163,7 +154,7 @@ class LongBridgeGateway(BaseGateway):
     def process_tick_event(self, event: Event) -> None:
         self.update_position_on_tick(event.data)
 
-    def handle_quote(self, symbol: str, quote: Union[PushQuote, SecurityQuote]):
+    def handle_quote(self, symbol: str, quote: PushQuote | SecurityQuote):
         depth = self.quote_ctx.realtime_depth(symbol)
         s, ex = convert_symbol_lb2vt(symbol)
         tick = TickData(
@@ -182,11 +173,11 @@ class LongBridgeGateway(BaseGateway):
         )
         d: dict = tick.__dict__
         for bid in depth.bids:
-            d["bid_price_%s" % bid.position] = float(bid.price)
-            d["bid_volume_%s" % bid.position] = float(bid.volume)
+            d[f"bid_price_{bid.position}"] = float(bid.price)
+            d[f"bid_volume_{bid.position}"] = float(bid.volume)
         for ask in depth.asks:
-            d["ask_price_%s" % ask.position] = float(ask.price)
-            d["ask_volume_%s" % ask.position] = float(ask.volume)
+            d[f"ask_price_{ask.position}"] = float(ask.price)
+            d[f"ask_volume_{ask.position}"] = float(ask.volume)
 
         if quote.last_done <= 0:
             self.write_log(f"{symbol} last_done <= 0, may be a bug? {quote}")
@@ -227,7 +218,7 @@ class LongBridgeGateway(BaseGateway):
         if self.after_connect is not None:
             self.after_connect()
 
-    def trading_session(self) -> Union[Tuple[time, time], None]:
+    def trading_session(self) -> tuple[time, time] | None:
         today = datetime.today()
         if self.today_trading_session is not None:
             session_date, session = self.today_trading_session
@@ -244,19 +235,19 @@ class LongBridgeGateway(BaseGateway):
     def close(self) -> None:
         pass
 
-    def subscribe_symbols(self, symbols: List[str]) -> None:
+    def subscribe_symbols(self, symbols: list[str]) -> None:
         self.write_log("subscribe_symbols")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
             symbol not in self.symbol_names])
 
-    def load_contract(self, symbols: List[str]) -> None:
+    def load_contract(self, symbols: list[str]) -> None:
         self.write_log("load_contract")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
             symbol not in self.symbol_names], contract_only=True)
 
-    def subscribe_batch(self, reqs: List[SubscribeRequest], contract_only=False) -> None:
+    def subscribe_batch(self, reqs: list[SubscribeRequest], contract_only=False) -> None:
         if not reqs:
             return
         symbols = [convert_symbol_vt2lb(req.symbol, req.exchange) for req in reqs]
@@ -375,7 +366,7 @@ class LongBridgeGateway(BaseGateway):
     def query_position(self) -> None:
         position_ids = set()
         if self.main_engine:
-            position_ids = set([p.vt_positionid for p in self.main_engine.get_all_positions()]) # 获取“本地已经缓存的所有持仓”
+            position_ids = {p.vt_positionid for p in self.main_engine.get_all_positions()}  # 获取”本地已经缓存的所有持仓”
 
         # self.write_log(f"查询持仓，当前本地缓存的持仓ID：{json.dumps(position_ids, default=str, ensure_ascii=False)}")
 
@@ -433,7 +424,7 @@ class LongBridgeGateway(BaseGateway):
             self.on_position(position)
             break
 
-    def query_history(self, req: HistoryRequestVN) -> List[BarData]:
+    def query_history(self, req: HistoryRequestVN) -> list[BarData]:
         count: int = 1000
         tail_mode = False
         if hasattr(req, "tail"):
@@ -456,7 +447,7 @@ class LongBridgeGateway(BaseGateway):
         return result
 
 
-def convert_symbol_lb2vt(code: str) -> (str, Exchange):
+def convert_symbol_lb2vt(code: str) -> tuple[str, Exchange]:
     symbol, region = code.rsplit(".", 1)
     exchange = EXCHANGE_LB2VT[region]
     return symbol, exchange

@@ -1,14 +1,66 @@
-from longbridge.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
-    OrderSide, OrderStatus, OrderType as OrderTypeLB, TimeInForceType, SecurityQuote, OutsideRTH, \
-    PushCandlestick, TradeSession, Candlestick
 
+from time import sleep
+from vnpy_longbridge.longbridge_gateway import build_config_from_setting
+from longbridge.openapi import QuoteContext, Config, SubType, PushQuote, OAuthBuilder
+import numpy as np
 
-def main():
-    params = {"app_key":'14e6bd6e0d52e5f3d68cd21bee61b269', "app_secret":'06aaee593b44e1a4b04dd9ce4ad351c81c0ab4758b650e9beded5da3e4783b4d', "access_token":'m_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJsb25nYnJpZGdlIiwic3ViIjoiYWNjZXNzX3Rva2VuIiwiZXhwIjoxNzcyNjEyNzgyLCJpYXQiOjE3NjQ4MzY3ODIsImFrIjoiMTRlNmJkNmUwZDUyZTVmM2Q2OGNkMjFiZWU2MWIyNjkiLCJhYWlkIjoyMDc1MjU0MCwiYWMiOiJsYl9zZyIsIm1pZCI6MTk5NTA1NjQsInNpZCI6Im51Q1djeXBWakdEMUxIL2w2R2x1UVE9PSIsImJsIjozLCJ1bCI6MCwiaWsiOiJsYl9zZ18yMDc1MjU0MCJ9.ZVc5ljVH4yvHDWT1iYzABoApiu-Youum6c50_EWQFzdfbfx9AGj5m69SawYMJc_8BQm9sabBlDRBq2xuL4L4_Tmzh8wvGORM0WFfj6nljLdGql-6z37JN6aI7zKBE4cyR0xsnc3V6RL7WB5uqAffqEk4RIeywksldCk5llcCt_YbQwl-v6F-Bp7YBLKPBz_hiTe84L-ndMUf2WohF_ulyT4tqZMfxnVydt5sF4KSEmgylPPXdYRCbbvxZLRGsOJCRm_Q46ktEALCwEBCb_jfpLiUoKVBNaA7seifE_hLzP5EwFWdNiO-Kub8oiYhl4cPv8EC3GnRJNY--ztR47x82272ldBB79U6J8gQGnm50I1-TXJ8vEwuVKfWxgqTV1KfEi-23TjJUDXtaPSfTnklDn2eScskPgm22OjIK4mrsx_TLOlp46MRn-JX4DCMNh77r5SK5G7P07wtlAirDPJmHYT0tca2EqR6hG97G68HgB3_KG-0LS08rM2CTWlfIwrj3xTdV8zKNmHto8_B1Me8fat13PpMCKbK0aIF7Mi73x2Uh5-u3Z8CFWvzMJSmAtvl0lwIOUXwGSCQS3Jsxmylw5Mo6DM98q5aQQGerq2mAYYHV0_eXIcIOgqN-x9OtSmL1INZp5fNhe0bvPeUQoOQ9x09_Q6_6fx7d3-7jVYSUEA'}
-    config = Config.from_apikey(**params)
+def on_quote(symbol: str, event: PushQuote):
+    print(symbol, event)
 
+from vnpy_longbridge.lb_strategy_app import BarData
+class ArrayManager:
+    """
+    For:
+    1. time series container of bar data
+    2. calculating technical indicator value
+    """
 
+    def __init__(self, size: int = 5) -> None:
+        """Constructor"""
+        self.count: int = 0
+        self.size: int = size
+        self.inited: bool = False
 
+        self.open_array: np.ndarray = np.zeros(size)
+        self.high_array: np.ndarray = np.zeros(size)
+        self.low_array: np.ndarray = np.zeros(size)
+        self.close_array: np.ndarray = np.zeros(size)
+        self.volume_array: np.ndarray = np.zeros(size)
+        self.turnover_array: np.ndarray = np.zeros(size)
+        self.open_interest_array: np.ndarray = np.zeros(size)
+
+    def update_bar(self, bar: int) -> None:
+        """
+        Update new bar data into array manager.
+        """
+        self.count += 1
+        if not self.inited and self.count >= self.size:
+            self.inited = True
+
+        self.open_array[:-1] = self.open_array[1:]
+        self.high_array[:-1] = self.high_array[1:]
+        self.low_array[:-1] = self.low_array[1:]
+        self.close_array[:-1] = self.close_array[1:]
+        self.volume_array[:-1] = self.volume_array[1:]
+        self.turnover_array[:-1] = self.turnover_array[1:]
+        self.open_interest_array[:-1] = self.open_interest_array[1:]
+
+        self.open_array[-1] = bar
+        self.high_array[-1] = bar
+        self.low_array[-1] = bar
+        self.close_array[-1] = bar
+        self.volume_array[-1] = bar
+        self.turnover_array[-1] = bar
+        self.open_interest_array[-1] = bar
 
 if __name__ == "__main__":
-    main()
+    # config = build_config_from_setting()
+    # ctx = QuoteContext(config)
+    # ctx.set_on_quote(on_quote)
+    #
+    # ctx.subscribe(["700.HK", "AAPL.US"], [SubType.Quote])
+    # sleep(30)
+    am = ArrayManager(size=5)
+    for i in range(10):
+        am.update_bar(i)
+        print(f"Update {i+1} times, inited: {am.inited}, count: {am.count}")
