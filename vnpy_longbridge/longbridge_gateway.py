@@ -236,12 +236,26 @@ class LongBridgeGateway(BaseGateway):
         pass
 
     def subscribe_symbols(self, symbols: list[str]) -> None:
+        """
+        订阅行情（完整模式）。
+
+        1. 加载合约信息（名称、每手股数等）推送给 vnpy
+        2. 订阅实时报价（Quote）、盘口深度（Depth）、日K、周K
+        会消耗长桥行情订阅额度。
+        """
         self.write_log("subscribe_symbols")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
             symbol not in self.symbol_names])
 
     def load_contract(self, symbols: list[str]) -> None:
+        """
+        仅加载合约信息，不订阅行情。
+
+        只获取合约基本信息（名称、每手股数等）推送给 vnpy，
+        不订阅实时行情数据，不消耗行情额度。
+        适用于只需要交易、不需要实时报价的场景。
+        """
         self.write_log("load_contract")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
@@ -290,11 +304,23 @@ class LongBridgeGateway(BaseGateway):
         if pending_orders:
             self.write_log(f"ignore order of {symbol} for there is pending order")
             return pending_orders[0].order_id
+        # 市价单不传 price，止损单传 trigger_price
+        order_type = ORDER_TYPE_VN2LB[req.type]
+        submitted_price = None
+        trigger_price = None
+        if req.type == OrderTypeVN.STOP:
+            trigger_price = Decimal(req.price)
+        elif req.type == OrderTypeVN.MARKET:
+            pass  # 市价单不设价格
+        else:
+            submitted_price = Decimal(req.price)
+
         resp = self.trade_ctx.submit_order(
-            symbol, ORDER_TYPE_VN2LB[req.type],
+            symbol, order_type,
             side=OrderSide.Buy if req.direction == Direction.LONG else OrderSide.Sell,
             submitted_quantity=int(req.volume),
-            submitted_price=Decimal(req.price),
+            submitted_price=submitted_price,
+            trigger_price=trigger_price,
             time_in_force=TimeInForceType.Day,
             outside_rth=OutsideRTH.RTHOnly,
             remark=req.reference,
@@ -319,7 +345,7 @@ class LongBridgeGateway(BaseGateway):
                 exchange=ex,
                 orderid=order.order_id,
                 type=ORDER_TYPE_LB2VT[str(order.order_type)],
-                price=float(order.price) if status not in [Status.PARTTRADED, Status.ALLTRADED] else float(
+                price=float(order.price or 0) if status not in [Status.PARTTRADED, Status.ALLTRADED] else float(
                     "nan") if order.executed_price is None else float(order.executed_price),
                 volume=float(order.quantity),
                 traded=float(order.executed_quantity),

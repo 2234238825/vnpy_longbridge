@@ -797,6 +797,10 @@ class CtaEngine(BaseEngine):
         path2: Path = Path.cwd().joinpath("strategies")
         self.load_strategy_class_from_folder(path2, "strategies")
 
+        self.write_log(_("加载策略路径1{}").format(path1))
+        self.write_log(_("加载策略路径2{}").format(path2))
+
+
     def load_strategy_class_from_folder(self, path: Path, module_name: str = "") -> None:
         """
         Load strategy class from certain folder.
