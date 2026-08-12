@@ -7,6 +7,41 @@
 
 基于长桥证券 Python SDK 开发的 VN.PY 交易网关和数据源。
 
+## 环境要求
+
+### 操作系统与 Python
+
+| 项目 | 要求 |
+|------|------|
+| 操作系统 | Windows / macOS / Linux |
+| Python | 推荐 3.12（项目规范），代码使用 3.10+ 新语法，需 ≥ 3.10 |
+| 发行版 | 推荐 [VeighNa Studio](https://www.vnpy.com)（自带 vnpy 完整环境）或手动搭建 |
+
+### 核心依赖
+
+| 依赖 | 版本（当前环境） | 用途 |
+|------|------|------|
+| vnpy | 4.3.0 | 交易框架主引擎、事件引擎 |
+| longbridge | 4.0.5 | 长桥证券 OpenAPI SDK |
+| fastapi | 0.127.0 | Web 交易页面后端（可选） |
+| uvicorn | 0.40.0 | ASGI 服务器（可选） |
+| numpy / pandas | 2.2.3 | 策略指标计算 |
+
+### 账户要求
+
+- 一个**长桥证券账户**（支持模拟盘 Sandbox，`build_config_from_setting()` 中 `Config.is_sandbox = True`）
+- 在[长桥 OpenAPI 开发者平台](https://open.longbridge.com)注册开发者账户，配置 OAuth 2.0 认证获取 `client_id`（配置方式见 `script/doc.md` 顶部）
+- 行情权限：订阅实时报价会消耗长桥行情订阅额度；仅加载合约（`load_contract`）不消耗
+
+### 启动方式
+
+本项目有两种启动入口，任选其一：
+
+1. **Qt 图形界面**：`python script/run.py`，用于日常监控与策略管理
+2. **Web 交易页面**：`python script/web_server.py`，浏览器访问 `http://localhost:8000`，支持远程访问、策略启停、手动下单（详见 `script/doc.md` 的"Web 交易页面"一节）
+
+首次运行会触发 OAuth 授权：控制台打印授权 URL，浏览器打开完成授权后 Token 自动持久化（Windows 存于 `%USERPROFILE%\.longbridge\openapi\tokens\`），过期自动刷新。
+
 ## 安装
 
 安装环境推荐基于3.8.0版本以上的【[**VeighNa Studio**](https://www.vnpy.com)】。

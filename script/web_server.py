@@ -1,14 +1,18 @@
+"""web_server.py — LongBridge Web Tr可以ader 启动脚本"""
+
 from vnpy.event import EventEngine
 from vnpy.trader.constant import Currency
 from vnpy.trader.engine import MainEngine
-from vnpy.trader.ui import create_qapp, MainWindow
 
 from vnpy_longbridge import LongBridgeGateway
-from vnpy_longbridge.lb_strategy_app.LbStrategyApp import LbStrategyApp, CtaBacktesterApp
+from vnpy_longbridge.lb_strategy_app.LbStrategyApp import LbStrategyApp
+from vnpy_longbridge.lb_strategy_app.base import APP_NAME
+from vnpy_longbridge.web import create_app
+
+import uvicorn
+
 
 def main():
-    qapp = create_qapp()
-
     event_engine = EventEngine()
     main_engine = MainEngine(event_engine)
 
@@ -23,13 +27,16 @@ def main():
             lb_gw.load_contract(["07709.HK", "ARM.US", "NVDA.US"])
 
         lb_gw.after_connect = subscribe
+        gw.connect({})
 
     main_engine.add_app(LbStrategyApp)
-    main_engine.add_app(CtaBacktesterApp)
-    main_window = MainWindow(main_engine, event_engine)
-    main_window.showNormal()
+    # GUI 版由 Qt 面板 CtaManager 调用 init_engine 加载策略；
+    # Web 版没有 Qt 面板，需要手动初始化，否则策略类不会加载。
+    cta_engine = main_engine.get_engine(APP_NAME)
+    cta_engine.init_engine()
 
-    qapp.exec()
+    app = create_app(main_engine, event_engine)
+    uvicorn.run(app, host="0.0.0.0", port=8101)
 
 
 if __name__ == "__main__":

@@ -1,14 +1,17 @@
 import traceback
+import zoneinfo
 from dataclasses import dataclass
-from datetime import time, datetime
+from datetime import time, datetime, timedelta
 from decimal import Decimal
 from os import write
 import json
 from collections.abc import Callable
 
+from tzlocal import get_localzone_name
+
 from longbridge.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
     OrderSide, OrderStatus, OrderType as OrderTypeLB, TimeInForceType, SecurityQuote, OutsideRTH, \
-    PushCandlestick, TradeSession, Candlestick, OAuthBuilder
+    PushCandlestick, TradeSession, Candlestick, OAuthBuilder, AdjustType
 from numpy import sign
 from vnpy.event import EventEngine, EVENT_TIMER, Event
 from vnpy.trader.constant import Direction, Exchange, Interval, Product, Status, OrderType as OrderTypeVN, Offset, \
@@ -213,10 +216,19 @@ class LongBridgeGateway(BaseGateway):
             self.main_engine.trading_session = self.trading_session
 
         for func in self.query_funcs:
-            func()
+            try:
+                func()
+            except Exception:
+                # 初始查询可能因网络时序失败，记录但不中断连接
+                self.write_log("初始查询异常（{}）：\n{}".format(
+                    getattr(func, "__name__", func), traceback.format_exc()))
 
         if self.after_connect is not None:
-            self.after_connect()
+            try:
+                self.after_connect()
+            except Exception:
+                # after_connect 里的订阅/查询可能因网络时序失败，记录但不中断服务
+                self.write_log("after_connect 触发异常：\n" + traceback.format_exc())
 
     def trading_session(self) -> tuple[time, time] | None:
         today = datetime.today()
@@ -270,7 +282,7 @@ class LongBridgeGateway(BaseGateway):
             contract = ContractData(
                 symbol=s,
                 exchange=ex,
-                name=info.name_en,
+                name=info.name_cn or info.name_en,
                 product=Product.EQUITY,
                 size=info.lot_size,
                 pricetick=0.01,
@@ -451,25 +463,41 @@ class LongBridgeGateway(BaseGateway):
             break
 
     def query_history(self, req: HistoryRequestVN) -> list[BarData]:
-        count: int = 1000
-        tail_mode = False
-        if hasattr(req, "tail"):
-            if req.tail is not None:
-                count = req.tail
-                tail_mode = True
+        # tail 模式：取最近 N 根，用实时 K 线接口（专为此设计）
+        if hasattr(req, "tail") and req.tail is not None:
+            candlesticks = self.quote_ctx.realtime_candlesticks(
+                convert_symbol_vt2lb(req.symbol, req.exchange),
+                INTERVAL_MAP[req.interval], req.tail)
+            return [convert_candlestick_bar(bar, req, self.gateway_name) for bar in candlesticks]
 
-        candlesticks = self.quote_ctx.realtime_candlesticks(
-            convert_symbol_vt2lb(req.symbol, req.exchange), INTERVAL_MAP[req.interval], count)
+        # 历史模式：按日期范围取，用 history_candlesticks_by_date 分页突破 1000 根限制
+        symbol = convert_symbol_vt2lb(req.symbol, req.exchange)
+        interval = INTERVAL_MAP[req.interval]
 
         result = []
-        for bar in candlesticks:
-            if not tail_mode:
+        end = req.end
+        while True:
+            candlesticks = self.quote_ctx.history_candlesticks_by_date(
+                symbol, interval, AdjustType.ForwardAdjust, start=req.start, end=end)
+            if not candlesticks:
+                break
+
+            for bar in candlesticks:
                 timestamp = bar.timestamp
                 if req.end is not None and not (req.start <= timestamp <= req.end):
                     continue
                 if req.end is None and not (req.start <= timestamp):
                     continue
-            result.append(convert_candlestick_bar(bar, req, self.gateway_name))
+                result.append(convert_candlestick_bar(bar, req, self.gateway_name))
+
+            if len(candlesticks) < 1000:
+                break
+            earliest = candlesticks[0].timestamp
+            if earliest <= req.start:
+                break
+            end = earliest - timedelta(days=1)
+
+        result.sort(key=lambda bar: bar.datetime)
         return result
 
 
@@ -485,7 +513,9 @@ def convert_symbol_vt2lb(symbol, exchange) -> str:
 
 
 def convert_candlestick_bar(candle: Candlestick, req: HistoryRequest, gateway_name: str):
-    timestamp = candle.timestamp  # .replace(tzinfo=zoneinfo.ZoneInfo(get_localzone_name()))
+    timestamp = candle.timestamp
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(zoneinfo.ZoneInfo(get_localzone_name())).replace(tzinfo=None)
     return BarData(
         symbol=req.symbol,
         exchange=req.exchange,

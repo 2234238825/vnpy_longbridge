@@ -12,6 +12,7 @@ from vnpy.trader.constant import Currency, Direction, Exchange, OrderType, Offse
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import create_qapp, MainWindow
 from vnpy.trader.object import OrderRequest
+from typing import Callable
 
 from vnpy_longbridge import LongBridgeGateway
 from vnpy_longbridge.lb_strategy_app.LbStrategyApp import LbStrategyApp
@@ -55,11 +56,11 @@ def send_test_orders(lb_gw: LongBridgeGateway):
     req = OrderRequest(
         symbol=sym,
         exchange=ex,
-        direction=Direction.LONG,       # 买入
-        type=OrderType.LIMIT,           # 限价
-        volume=100,                     # 100股
-        price=5.0,                      # 限价 $5.00
-        offset=Offset.OPEN,             # 开仓
+        direction=Direction.LONG,  # 买入
+        type=OrderType.LIMIT,  # 限价
+        volume=100,  # 100股
+        price=5.0,  # 限价 $5.00
+        offset=Offset.OPEN,  # 开仓
         reference="test_limit_buy",
     )
     print(f"[测试1] 限价买单 — {raw}")
@@ -78,11 +79,11 @@ def send_test_orders(lb_gw: LongBridgeGateway):
     req = OrderRequest(
         symbol=sym,
         exchange=ex,
-        direction=Direction.SHORT,      # 卖出
-        type=OrderType.LIMIT,           # 限价
-        volume=50,                      # 50股
-        price=100.0,                    # 限价 $100.00
-        offset=Offset.CLOSE,            # 平仓
+        direction=Direction.SHORT,  # 卖出
+        type=OrderType.LIMIT,  # 限价
+        volume=50,  # 50股
+        price=100.0,  # 限价 $100.00
+        offset=Offset.CLOSE,  # 平仓
         reference="test_limit_sell",
     )
     print(f"[测试2] 限价卖单 — {raw}")
@@ -103,11 +104,11 @@ def send_test_orders(lb_gw: LongBridgeGateway):
     req = OrderRequest(
         symbol=sym,
         exchange=ex,
-        direction=Direction.LONG,       # 买入
-        type=OrderType.MARKET,          # 市价
-        volume=10,                      # 10股
+        direction=Direction.LONG,  # 买入
+        type=OrderType.MARKET,  # 市价
+        volume=10,  # 10股
         # 市价单 price 设 0，不依赖具体价格
-        offset=Offset.OPEN,             # 开仓
+        offset=Offset.OPEN,  # 开仓
         reference="test_market_buy",
     )
     print(f"[测试3] 市价买单 — {raw}")
@@ -126,10 +127,10 @@ def send_test_orders(lb_gw: LongBridgeGateway):
     req = OrderRequest(
         symbol=sym,
         exchange=ex,
-        direction=Direction.SHORT,      # 卖出
-        type=OrderType.MARKET,          # 市价
-        volume=10,                      # 10股
-        offset=Offset.CLOSE,            # 平仓
+        direction=Direction.SHORT,  # 卖出
+        type=OrderType.MARKET,  # 市价
+        volume=10,  # 10股
+        offset=Offset.CLOSE,  # 平仓
         reference="test_market_sell",
     )
     print(f"[测试4] 市价卖单 — {raw}")
@@ -151,11 +152,11 @@ def send_test_orders(lb_gw: LongBridgeGateway):
     req = OrderRequest(
         symbol=sym,
         exchange=ex,
-        direction=Direction.LONG,       # 买入
-        type=OrderType.STOP,            # 止损/触价单
-        volume=10,                      # 10股
-        price=999.0,                    # 触发价设很高（模拟中不会触发）
-        offset=Offset.OPEN,             # 开仓
+        direction=Direction.LONG,  # 买入
+        type=OrderType.STOP,  # 止损/触价单
+        volume=10,  # 10股
+        price=999.0,  # 触发价设很高（模拟中不会触发）
+        offset=Offset.OPEN,  # 开仓
         reference="test_stop_buy",
     )
     print(f"[测试5] 止损买单 — {raw}")
@@ -192,6 +193,7 @@ def run_gui(main_engine: MainEngine, event_engine: EventEngine) -> None:
 # ============================================================================
 
 if __name__ == "__main__":
+
     print(">>> 创建 QApplication ...")
     qapp = create_qapp()
 

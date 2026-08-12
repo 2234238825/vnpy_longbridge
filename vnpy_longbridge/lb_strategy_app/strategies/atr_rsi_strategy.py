@@ -1,5 +1,7 @@
 import numpy as np
 
+from vnpy.trader.constant import Interval
+
 from vnpy_longbridge.lb_strategy_app import (
     CtaTemplate,
     StopOrder,
@@ -54,7 +56,7 @@ class AtrRsiStrategy(CtaTemplate):
         """
         Callback when strategy is inited.
         """
-        self.write_log("huhh策略初始化")
+        self.write_log("AtrRsi策略初始化")
 
         self.bg: BarGenerator = BarGenerator(self.on_bar)
         self.am: ArrayManager = ArrayManager()
@@ -62,25 +64,26 @@ class AtrRsiStrategy(CtaTemplate):
         self.rsi_buy = 50 + self.rsi_entry
         self.rsi_sell = 50 - self.rsi_entry
 
-        self.load_bar(10)
+        # 日线初始化，与回测/实盘的日线数据保持一致；
+        # 180 个日历天约 128 个交易日，够 ArrayManager 累积满 100 根
+        self.load_bar(180, interval=Interval.DAILY)
 
     def on_start(self) -> None:
         """
         Callback when strategy is started.
         """
-        self.write_log("huhh策略启动")
+        self.write_log("AtrRsi策略启动")
 
     def on_stop(self) -> None:
         """
         Callback when strategy is stopped.
         """
-        self.write_log("huhh策略停止")
+        self.write_log("AtrRsi策略停止")
 
     def on_tick(self, tick: TickData) -> None:
         """
         Callback of new tick data update.
         """
-        self.write_log("huhh on tick")
         self.bg.update_tick(tick)
 
     def on_bar(self, bar: BarData) -> None:
@@ -110,7 +113,6 @@ class AtrRsiStrategy(CtaTemplate):
         am: ArrayManager = self.am
         am.update_bar(bar)
         if not am.inited:
-            self.write_log("数据不足，无法计算指标，直接返回")
             return  # 数据不足，无法计算指标，直接返回
 
         # ============================================================
@@ -132,6 +134,10 @@ class AtrRsiStrategy(CtaTemplate):
         self.atr_value = atr_array[-1]                                 # 最新ATR值
         self.atr_ma = atr_array[-self.atr_ma_length:].mean()          # ATR的10周期均线（波动率基线）
         self.rsi_value = am.rsi(self.rsi_length)                       # 5周期RSI
+
+        # 初始化阶段（trading=False）只累积指标，不下单也不触发信号
+        if not self.trading:
+            return
 
         # ============================================================
         # 第4步：空仓 → 判断是否开仓
@@ -156,8 +162,16 @@ class AtrRsiStrategy(CtaTemplate):
 
             if self.atr_value > self.atr_ma:                # 波动率扩张 = 趋势确认
                 if self.rsi_value > self.rsi_buy:            # RSI > 66，强势上涨
+                    self.write_log(
+                        f"触发买入：RSI={self.rsi_value:.2f} > {self.rsi_buy}，"
+                        f"ATR={self.atr_value:.2f} > MA={self.atr_ma:.2f}，开多"
+                    )
                     self.buy(bar.close_price + 5, self.fixed_size)
                 elif self.rsi_value < self.rsi_sell:         # RSI < 34，弱势下跌
+                    self.write_log(
+                        f"触发做空：RSI={self.rsi_value:.2f} < {self.rsi_sell}，"
+                        f"ATR={self.atr_value:.2f} > MA={self.atr_ma:.2f}，开空"
+                    )
                     self.short(bar.close_price - 5, self.fixed_size)
 
         # ============================================================
