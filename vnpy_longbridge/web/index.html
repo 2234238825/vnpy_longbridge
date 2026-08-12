@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LongBridge Trader</title>
+<script src="/vendor/lightweight-charts.standalone.production.js"></script>
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #21262d;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --dim: #8b949e;
+  --green: #3fb950;
+  --red: #f85149;
+  --blue: #58a6ff;
+  --yellow: #d2991d;
+  --orange: #db6d28;
+  --accent: #1f6feb;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font: 13px/1.5 "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+header {
+  display: flex; align-items: center; gap: 16px; padding: 8px 16px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  min-height: 40px; flex-shrink: 0;
+}
+header h1 { font-size: 15px; font-weight: 600; margin-right: 8px; }
+#ws-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+#ws-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); }
+#ws-dot.online { background: var(--green); }
+.accounts { display: flex; gap: 16px; margin-left: auto; }
+.account-card {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 14px; text-align: right;
+}
+.account-card .bal { font-size: 16px; font-weight: 600; }
+.account-card .label { font-size: 10px; color: var(--dim); }
+.account-card .frozen { font-size: 11px; color: var(--orange); }
+
+main {
+  display: grid; grid-template-columns: 280px 1fr; grid-template-rows: 1fr auto;
+  flex: 1; overflow: hidden; gap: 1px; background: var(--border);
+}
+
+.panel-header {
+  font-size: 12px; font-weight: 600; letter-spacing: .5px;
+  padding: 6px 12px; background: var(--bg3); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.panel { background: var(--bg2); overflow: hidden; display: flex; flex-direction: column; }
+.panel-body { flex: 1; overflow: auto; padding: 8px; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; color: var(--dim); font-size: 11px; padding: 4px 8px;
+     border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--bg2); }
+td { padding: 3px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tr:hover td { background: var(--bg3); }
+.up { color: var(--green); }
+.down { color: var(--red); }
+
+/* Strategy Cards */
+.strat-card {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px; margin-bottom: 8px;
+}
+.s-name { font-weight: 600; font-size: 13px; }
+.s-meta { font-size: 11px; color: var(--dim); margin-bottom: 4px; }
+.s-status { display: inline-block; font-size: 10px; padding: 1px 8px; border-radius: 10px; margin-left: 4px; }
+.s-status.inited { background: var(--blue); color: #000; }
+.s-status.trading { background: var(--green); color: #000; }
+.s-vars { font-size: 11px; margin: 6px 0; }
+.s-vars span { margin-right: 12px; }
+.s-actions { display: flex; gap: 4px; margin-top: 6px; }
+
+/* Buttons */
+.btn {
+  font: 11px/1 system-ui; border: 1px solid var(--border); border-radius: 4px;
+  padding: 2px 10px; cursor: pointer; background: var(--bg3); color: var(--text);
+}
+.btn:hover { background: var(--border); }
+.btn-green { border-color: var(--green); color: var(--green); }
+.btn-green:hover { background: var(--green); color: #000; }
+.btn-red { border-color: var(--red); color: var(--red); }
+.btn-red:hover { background: var(--red); color: #000; }
+.btn-blue { border-color: var(--blue); color: var(--blue); }
+.btn-blue:hover { background: var(--blue); color: #000; }
+
+/* Order Form */
+.form-row { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.form-row label { font-size: 11px; color: var(--dim); display: block; }
+.form-row input, .form-row select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 8px; font: 12px system-ui;
+  min-width: 60px;
+}
+
+/* Log */
+#log-panel { grid-column: 1 / -1; max-height: 150px; }
+#log-body { font: 11px/1.6 "Cascadia Code", "SF Mono", monospace; padding: 6px 12px; }
+.log-line { border-bottom: 1px solid var(--border); padding: 1px 0; }
+.log-time { color: var(--dim); margin-right: 10px; }
+.log-cmd { color: var(--yellow); }
+.log-resp { color: var(--blue); }
+.log-err { color: var(--red); }
+
+/* Tabs */
+.tab-bar { display: flex; gap: 0; background: var(--bg3); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.tab-btn {
+  font: 12px system-ui; padding: 6px 16px; background: none; border: none;
+  color: var(--dim); cursor: pointer; border-bottom: 2px solid transparent;
+}
+.tab-btn.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab-content { display: none; flex: 1; overflow: auto; }
+.tab-content.active { display: block; }
+
+/* Chart */
+#chart-tab { display: none; flex-direction: column; padding: 0; }
+#chart-tab.active { display: flex; }
+.chart-toolbar { display: flex; gap: 8px; align-items: center; padding: 8px 12px;
+  border-bottom: 1px solid var(--border); background: var(--bg2); }
+.chart-toolbar input, .chart-toolbar select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 4px; padding: 4px 8px; font: 12px system-ui; }
+#chart-container { flex: 1; min-height: 0; padding: 4px; }
+/* 隐藏 Lightweight-Charts 的 TradingView 品牌 logo */
+#chart-container #tv-attr-logo { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>LongBridge</h1>
+  <span id="ws-status"><span id="ws-dot"></span><span id="ws-text">offline</span></span>
+  <div class="accounts" id="accounts-area"><span style="color:var(--dim)">waiting for data...</span></div>
+</header>
+
+<main>
+  <!-- Strategy Panel -->
+  <div class="panel" style="grid-row:1;">
+    <div class="panel-header">Strategies <button class="btn" id="refresh-strategies">refresh</button></div>
+    <div class="panel-body" id="strategy-list">no strategies loaded</div>
+    <div class="panel-header" style="border-top:1px solid var(--border)">Order Entry</div>
+    <div class="panel-body" id="order-form-panel">
+      <div class="form-row">
+        <label>Symbol<input id="of-symbol" placeholder="AAPL"></label>
+        <label>Exchange<input id="of-exchange" placeholder="SMART"></label>
+      </div>
+      <div class="form-row">
+        <label>Direction<select id="of-direction"><option>LONG</option><option>SHORT</option></select></label>
+        <label>Type<select id="of-type"><option>LIMIT</option><option>MARKET</option><option>STOP</option></select></label>
+        <label>Offset<select id="of-offset"><option>OPEN</option><option>CLOSE</option><option>NONE</option></select></label>
+      </div>
+      <div class="form-row">
+        <label>Price<input id="of-price" value="0" type="number" step="0.01"></label>
+        <label>Volume<input id="of-volume" value="1" type="number" step="1" min="1"></label>
+      </div>
+      <div class="form-row" style="justify-content:flex-end">
+        <button class="btn btn-green" id="btn-send-order">Send Order</button>
+        <button class="btn btn-blue" id="btn-subscribe">Subscribe</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Panel -->
+  <div class="panel" style="grid-row:1; display:flex; flex-direction:column;">
+    <div class="tab-bar" id="data-tabs">
+      <button class="tab-btn active" data-tab="positions">Positions</button>
+      <button class="tab-btn" data-tab="orders">Orders</button>
+      <button class="tab-btn" data-tab="trades">Trades</button>
+      <button class="tab-btn" data-tab="chart-tab">Chart</button>
+    </div>
+    <div class="tab-content active" id="positions">
+      <table><thead><tr>
+        <th>Symbol</th><th>Dir</th><th>Qty</th><th>Avg Price</th><th>PnL</th><th>PnL%</th>
+      </tr></thead><tbody id="positions-tbody"></tbody></table>
+    </div>
+    <div class="tab-content" id="orders">
+      <table><thead><tr>
+        <th>Symbol</th><th>Dir</th><th>Type</th><th>Qty</th><th>Filled</th><th>Price</th><th>Status</th><th></th>
+      </tr></thead><tbody id="orders-tbody"></tbody></table>
+    </div>
+    <div class="tab-content" id="trades">
+      <table><thead><tr>
+        <th>Symbol</th><th>Dir</th><th>Qty</th><th>Price</th><th>Time</th>
+      </tr></thead><tbody id="trades-tbody"></tbody></table>
+    </div>
+    <div class="tab-content" id="chart-tab">
+      <div class="chart-toolbar">
+        <input id="chart-symbol" placeholder="SPY" style="width:90px">
+        <input id="chart-exchange" placeholder="SMART" style="width:80px">
+        <select id="chart-interval">
+          <option value="1m">1 分钟</option>
+          <option value="1h">1 小时</option>
+          <option value="d" selected>日线</option>
+          <option value="w">周线</option>
+        </select>
+        <button class="btn btn-blue" id="btn-chart-load">加载</button>
+        <button class="btn" id="btn-chart-subscribe">订阅</button>
+        <span style="color:var(--dim);font-size:11px" id="chart-status"></span>
+      </div>
+      <div id="chart-container"></div>
+    </div>
+  </div>
+
+  <!-- Log Panel -->
+  <div class="panel" id="log-panel">
+    <div class="panel-header">Log <button class="btn btn-red" id="clear-log" style="font-size:10px">clear</button></div>
+    <div class="panel-body" id="log-body"></div>
+  </div>
+</main>
+
+<script>
+// ---- state ----
+const state = { positions: {}, orders: {}, accounts: [], contracts: {} };
+let ws = null;
+let logLines = 0;
+const MAX_LOG = 200;
+
+// ---- helpers ----
+function fmt(n, d=2) { return typeof n === 'number' ? n.toFixed(d) : n; }
+function pnlClass(v) { return v > 0 ? 'up' : v < 0 ? 'down' : ''; }
+function ts() { return new Date().toLocaleTimeString(); }
+// 显示标的：中文名（代码），查不到时退回代码
+function symName(vtSymbol) {
+  const c = state.contracts[vtSymbol];
+  if (c && c.name) return `${c.name} (${c.symbol})`;
+  const parts = (vtSymbol || '').split('.');
+  return parts[0] || vtSymbol;
+}
+
+// ---- WebSocket ----
+function wsConnect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen = () => {
+    document.getElementById('ws-dot').classList.add('online');
+    document.getElementById('ws-text').textContent = 'online';
+  };
+  ws.onclose = () => {
+    document.getElementById('ws-dot').classList.remove('online');
+    document.getElementById('ws-text').textContent = 'offline';
+    setTimeout(wsConnect, 3000);
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    handleWs(msg.type, msg.data);
+  };
+}
+
+function handleWs(type, data) {
+  if (type.startsWith('ePOSITION')) {
+    if (data.volume !== 0) state.positions[data.vt_positionid] = data;
+    else delete state.positions[data.vt_positionid];
+    renderPositions();
+  } else if (type.startsWith('eACCOUNT')) {
+    state.accounts = state.accounts.filter(a => a.vt_accountid !== data.vt_accountid);
+    state.accounts.push(data);
+    renderAccounts();
+  } else if (type.startsWith('eORDER')) {
+    renderOrders();
+  } else if (type.startsWith('eTRADE')) {
+    renderTrades();
+  } else if (type === 'eCTAStrategy' || type.startsWith('eCTAStrategy')) {
+    if (data && data.strategy_name) refreshStrategies();
+  } else if (type === 'eLOG' || type === 'eCTALog' || type.startsWith('eLOG') || type.startsWith('eCTALog')) {
+    logLine(data.msg || data.message || JSON.stringify(data));
+  } else if (type === 'eCTAStopOrder' || type.startsWith('eCTAStopOrder')) {
+    logLine('[StopOrder] ' + JSON.stringify(data));
+  } else if (type.startsWith('eTICK')) {
+    chartOnTick(data);
+  }
+}
+
+function logLine(msg) {
+  const el = document.getElementById('log-body');
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  div.innerHTML = `<span class="log-time">${ts()}</span>${msg}`;
+  el.prepend(div);
+  if (++logLines > MAX_LOG) { el.lastChild.remove(); logLines--; }
+}
+
+// ---- Render ----
+function renderAccounts() {
+  const el = document.getElementById('accounts-area');
+  if (!state.accounts.length) { el.innerHTML = '<span style="color:var(--dim)">no account data</span>'; return; }
+  el.innerHTML = state.accounts.map(a => {
+    const avail = a.balance - a.frozen;
+    return `<div class="account-card">
+      <div class="bal">${fmt(a.balance)}</div>
+      <span class="label">${a.currency || a.accountid} &middot; available ${fmt(avail)}</span>
+      ${a.frozen ? `<span class="frozen">frozen ${fmt(a.frozen)}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderPositions() {
+  const tbody = document.getElementById('positions-tbody');
+  const rows = Object.values(state.positions);
+  tbody.innerHTML = rows.map(p => {
+    const qty = p.direction === '空' ? -Math.abs(p.volume) : p.volume;
+    return `<tr>
+      <td>${symName(p.vt_symbol)}</td>
+      <td>${p.direction}</td>
+      <td>${qty}</td>
+      <td>${fmt(p.price)}</td>
+      <td class="${pnlClass(p.pnl)}">${fmt(p.pnl)}</td>
+      <td class="${pnlClass(p.pct_pnl)}">${fmt(p.pct_pnl)}%</td>
+    </tr>`;
+  }).join('');
+}
+
+async function refreshAll() {
+  try {
+    const [pos, ord, trd, acc, str, contracts] = await Promise.all([
+      fetch('/api/position/list').then(r => r.json()),
+      fetch('/api/order/list').then(r => r.json()),
+      fetch('/api/trade/list').then(r => r.json()),
+      fetch('/api/account/list').then(r => r.json()),
+      fetch('/api/strategy/list').then(r => r.json()),
+      fetch('/api/contract/list').then(r => r.json()),
+    ]);
+    state.positions = {}; pos.forEach(p => { state.positions[p.vt_positionid] = p; });
+    state.accounts = acc;
+    state.contracts = {}; contracts.forEach(c => { state.contracts[c.vt_symbol] = c; });
+    state._orders = ord;
+    state._trades = trd;
+    state._strategies = str;
+    renderPositions();
+    renderAccounts();
+    renderOrders();
+    renderTrades();
+    renderStrategies();
+  } catch(ex) {
+    logLine('refresh failed: ' + ex.message);
+  }
+}
+
+function renderOrders() {
+  fetch('/api/order/list').then(r => r.json()).then(orders => {
+    state._orders = orders;
+    const tbody = document.getElementById('orders-tbody');
+    tbody.innerHTML = orders.reverse().map(o => `<tr>
+      <td>${symName(o.vt_symbol)}</td>
+      <td>${o.direction}</td>
+      <td>${o.type}</td>
+      <td>${o.volume}</td>
+      <td>${o.traded}</td>
+      <td>${fmt(o.price)}</td>
+      <td>${o.status}</td>
+      <td>${o.status === '未成交' || o.status === '已撤销' ? '' :
+        `<button class="btn btn-red" style="font-size:10px" onclick="cancelOrder('${o.vt_orderid}')">cancel</button>`}</td>
+    </tr>`).join('');
+  });
+}
+
+function renderTrades() {
+  fetch('/api/trade/list').then(r => r.json()).then(trades => {
+    state._trades = trades;
+    const tbody = document.getElementById('trades-tbody');
+    tbody.innerHTML = trades.reverse().slice(0, 50).map(t => `<tr>
+      <td>${symName(t.vt_symbol)}</td>
+      <td>${t.direction}</td>
+      <td>${t.volume}</td>
+      <td>${fmt(t.price)}</td>
+      <td>${t.datetime}</td>
+    </tr>`).join('');
+  });
+}
+
+// ---- Strategies ----
+async function refreshStrategies() {
+  const resp = await fetch('/api/strategy/list'); const data = await resp.json();
+  state._strategies = data;
+  renderStrategies();
+}
+
+function renderStrategies() {
+  const el = document.getElementById('strategy-list');
+  if (!state._strategies || !state._strategies.length) { el.innerHTML = 'no strategies'; return; }
+  el.innerHTML = state._strategies.map(s => {
+    const statusClass = s.trading ? 'trading' : s.inited ? 'inited' : '';
+    const statusText = s.trading ? 'running' : s.inited ? 'inited' : 'stopped';
+    const vars = Object.entries(s.variables || {}).filter(([k]) => !['inited','trading'].includes(k))
+      .map(([k,v]) => `<span>${k}: ${v}</span>`).join('');
+    return `<div class="strat-card">
+      <div><span class="s-name">${s.strategy_name}</span><span class="s-status ${statusClass}">${statusText}</span></div>
+      <div class="s-meta">${s.vt_symbol} &middot; ${s.class_name} &middot; pos: ${s.pos}</div>
+      <div class="s-vars">${vars || '---'}</div>
+      <div class="s-actions">
+        <button class="btn btn-blue" onclick="strategyAction('${s.strategy_name}','init')">Init</button>
+        <button class="btn btn-green" onclick="strategyAction('${s.strategy_name}','start')">Start</button>
+        <button class="btn btn-red" onclick="strategyAction('${s.strategy_name}','stop')">Stop</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function strategyAction(name, action) {
+  await fetch(`/api/strategy/${name}/${action}`, {method:'POST'});
+  logLine(`strategy ${name}: ${action}`);
+  setTimeout(refreshStrategies, 500);
+}
+
+async function cancelOrder(vtOrderid) {
+  await fetch('/api/order/cancel', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({vt_orderid: vtOrderid})});
+  logLine(`cancel order: ${vtOrderid}`);
+}
+
+// ---- Order Form ----
+document.getElementById('btn-send-order').onclick = async () => {
+  const body = {
+    symbol: document.getElementById('of-symbol').value,
+    exchange: document.getElementById('of-exchange').value,
+    direction: document.getElementById('of-direction').value,
+    type: document.getElementById('of-type').value,
+    price: parseFloat(document.getElementById('of-price').value) || 0,
+    volume: parseFloat(document.getElementById('of-volume').value) || 1,
+    offset: document.getElementById('of-offset').value,
+  };
+  const resp = await fetch('/api/order/send', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)});
+  const result = await resp.json();
+  if (result.error) logLine('order error: ' + result.error);
+  else logLine(`order sent: ${result.vt_orderid}`);
+};
+
+document.getElementById('btn-subscribe').onclick = async () => {
+  await fetch('/api/subscribe', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      symbol: document.getElementById('of-symbol').value,
+      exchange: document.getElementById('of-exchange').value,
+    })});
+  logLine(`subscribed ${document.getElementById('of-symbol').value}.${document.getElementById('of-exchange').value}`);
+};
+
+document.getElementById('refresh-strategies').onclick = refreshStrategies;
+document.getElementById('clear-log').onclick = () => {
+  document.getElementById('log-body').innerHTML = ''; logLines = 0;
+};
+
+// ---- Tabs ----
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'chart-tab') {
+      resizeChart();
+      loadChart();   // 切到图表 Tab 自动加载 K 线
+    }
+  };
+});
+
+// ---- Chart (Lightweight-Charts) ----
+let chart = null, candleSeries = null, volumeSeries = null;
+let chartSymbol = 'SPY', chartExchange = 'SMART', chartInterval = 'd';
+const chartBars = {};  // time(sec) -> bar, for live tick update
+
+function initChart() {
+  // 若 chart 已存在但 series 缺失（半初始化状态），销毁重建
+  if (chart && candleSeries && volumeSeries) return;
+  if (chart) chart.remove();
+  chart = LightweightCharts.createChart(document.getElementById('chart-container'), {
+    layout: { background: { type: 'solid', color: '#161b22' }, textColor: '#c9d1d9' },
+    grid: { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    timeScale: { borderColor: '#30363d' },
+    rightPriceScale: { borderColor: '#30363d' },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  });
+  candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
+    upColor: '#f85149', downColor: '#3fb950',
+    borderUpColor: '#f85149', borderDownColor: '#3fb950',
+    wickUpColor: '#f85149', wickDownColor: '#3fb950',
+  });
+  volumeSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
+    priceFormat: { type: 'volume' }, priceScaleId: '',
+  });
+  volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+}
+
+function barToTime(iso, interval) {
+  // iso 形如 '2026-08-06T12:00:00'（本地时区）。Lightweight-Charts 用 UTC 秒，需转成当地日期的 UTC 表示
+  const d = new Date(iso);
+  if (interval === 'd' || interval === 'w') {
+    const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+  }
+  return Math.floor(d.getTime()/1000);
+}
+
+async function loadChart() {
+  initChart();   // 确保 chart 和 series 都就绪（半初始化状态会重建）
+  chartSymbol = document.getElementById('chart-symbol').value || chartSymbol;
+  chartExchange = document.getElementById('chart-exchange').value || chartExchange;
+  chartInterval = document.getElementById('chart-interval').value;
+  const status = document.getElementById('chart-status');
+  status.textContent = 'loading...';
+  try {
+    const resp = await fetch(`/api/kline?symbol=${chartSymbol}&exchange=${chartExchange}&interval=${chartInterval}&limit=300`);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const bars = await resp.json();
+    chartBars.length = 0;
+    const cdata = [], vdata = [];
+    for (const b of bars) {
+      const time = barToTime(b.datetime, chartInterval);
+      cdata.push({ time, open: b.open_price, high: b.high_price, low: b.low_price, close: b.close_price });
+      const up = b.close_price >= b.open_price;
+      vdata.push({ time, value: b.volume, color: up ? 'rgba(248,81,73,0.5)' : 'rgba(63,185,80,0.5)' });
+      chartBars[time] = b;
+    }
+    candleSeries.setData(cdata);
+    volumeSeries.setData(vdata);
+    chart.timeScale().fitContent();
+    status.textContent = `${bars.length} bars · ${chartSymbol}.${chartExchange} ${chartInterval}`;
+  } catch (ex) {
+    status.textContent = 'error: ' + ex.message;
+    logLine('chart load error: ' + ex.message);
+  }
+}
+
+function chartOnTick(tick) {
+  if (!chart || tick.symbol !== chartSymbol || (tick.exchange || '') !== chartExchange) return;
+  const time = barToTime(tick.datetime || new Date().toISOString(), chartInterval);
+  const bar = chartBars[time];
+  if (!bar) return;
+  bar.close_price = tick.last_price;
+  bar.high_price = Math.max(bar.high_price, tick.last_price);
+  bar.low_price = Math.min(bar.low_price, tick.last_price);
+  candleSeries.update({
+    time, open: bar.open_price, high: bar.high_price, low: bar.low_price, close: bar.close_price,
+  });
+}
+
+function resizeChart() { if (chart) chart.resize(document.getElementById('chart-container').clientWidth, document.getElementById('chart-container').clientHeight); }
+window.addEventListener('resize', resizeChart);
+
+document.getElementById('btn-chart-load').onclick = loadChart;
+document.getElementById('btn-chart-subscribe').onclick = async () => {
+  await fetch('/api/subscribe', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ symbol: chartSymbol, exchange: chartExchange })});
+  logLine(`chart subscribe ${chartSymbol}.${chartExchange}`);
+};
+
+// ---- Init ----
+wsConnect();
+refreshAll();
+setInterval(refreshAll, 10000);
+
+// URL 带 ?chart 时自动打开图表 Tab（也便于验证图表渲染）
+if (new URLSearchParams(location.search).has('chart')) {
+  const chartTab = document.querySelector('[data-tab="chart-tab"]');
+  if (chartTab) chartTab.click();
+}
+</script>ru
+</body>
+</html>

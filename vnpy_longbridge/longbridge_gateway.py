@@ -1,14 +1,17 @@
 import traceback
+import zoneinfo
 from dataclasses import dataclass
-from datetime import time, datetime
+from datetime import time, datetime, timedelta
 from decimal import Decimal
 from os import write
 import json
-from typing import Union, Dict, List, Type, Tuple, Optional
+from collections.abc import Callable
+
+from tzlocal import get_localzone_name
 
 from longbridge.openapi import QuoteContext, TradeContext, Config, Market, SubType, PushQuote, PushTrades, Period, \
     OrderSide, OrderStatus, OrderType as OrderTypeLB, TimeInForceType, SecurityQuote, OutsideRTH, \
-    PushCandlestick, TradeSession, Candlestick
+    PushCandlestick, TradeSession, Candlestick, OAuthBuilder, AdjustType
 from numpy import sign
 from vnpy.event import EventEngine, EVENT_TIMER, Event
 from vnpy.trader.constant import Direction, Exchange, Interval, Product, Status, OrderType as OrderTypeVN, Offset, \
@@ -37,13 +40,14 @@ _ = translations.gettext
 
 
 # 交易所映射
-EXCHANGE_VT2LB: dict = {
+EXCHANGE_VT2LB: dict[Exchange, Market] = {
     Exchange.SMART: Market.US,
     Exchange.SEHK: Market.HK,
 }
-EXCHANGE_LB2VT: Dict[str, Exchange] = {str(v).split('.', 2)[1]: k for k, v in EXCHANGE_VT2LB.items()}
 
-INTERVAL_MAP: Dict[Interval, Type[Period]] = {
+EXCHANGE_LB2VT: dict[str, Exchange] = {str(v).split('.', 2)[1]: k for k, v in EXCHANGE_VT2LB.items()}
+
+INTERVAL_MAP: dict[Interval, type[Period]] = {
     Interval.MINUTE: Period.Min_1,
     Interval.HOUR: Period.Min_60,
     Interval.DAILY: Period.Day,
@@ -95,7 +99,7 @@ ORDER_TYPE_LB2VT: dict[str, OrderTypeVN] = {
     str(OrderTypeLB.SLO): OrderTypeVN.LIMIT,
 }
 
-ORDER_TYPE_VN2LB: Dict[OrderTypeVN, Type[OrderTypeLB]] = {
+ORDER_TYPE_VN2LB: dict[OrderTypeVN, type[OrderTypeLB]] = {
     OrderTypeVN.MARKET: OrderTypeLB.MO,
     OrderTypeVN.LIMIT: OrderTypeLB.LO,
     OrderTypeVN.STOP: OrderTypeLB.MIT,
@@ -107,27 +111,20 @@ class HistoryRequest(HistoryRequestVN):
     tail: int = None
 
 
-class Context(object):
+class Context:
     def __init__(self):
-        self.quote_ctx: Union[QuoteContext, None] = None
+        self.quote_ctx: QuoteContext | None = None
 
 
 SHARED_CONTEXT = Context()
 
-
 def build_config_from_setting() -> Config:
-    from vnpy.trader.setting import SETTINGS
-    params = {key: SETTINGS[f"longbridge.{key}"] for key in ["app_key", "app_secret", "access_token"]}
-    for key in ["http_url", "quote_ws_url", "trade_ws_url"]:
-        value = SETTINGS[f"longbridge.{key}"].strip()
-        if value != "":
-            params[key] = value
-    return Config(**params)
-
-def build_config_from_setting() -> Config:
-    
-    return Config.from_apikey(**params)
-
+    oauth = OAuthBuilder("eefe225a-a748-44b5-b66b-a4993ddea744").build(
+        lambda url: print(f"请访问此 URL 进行授权：{url}")
+    )
+    #return Config.from_apikey(**params)
+    Config.is_sandbox = True
+    return Config.from_oauth(oauth)
 
 class LongBridgeGateway(BaseGateway):
     default_name = "LongBridge"
@@ -135,11 +132,11 @@ class LongBridgeGateway(BaseGateway):
 
     def __init__(self, event_engine: EventEngine, gateway_name: str) -> None:
         super().__init__(event_engine, gateway_name)
-        self.main_engine: Optional[MainEngine] = None
-        self.quote_ctx: Optional[QuoteContext] = None
-        self.trade_ctx: Optional[TradeContext] = None
+        self.main_engine: MainEngine | None = None
+        self.quote_ctx: QuoteContext | None = None
+        self.trade_ctx: TradeContext | None = None
         self.query_funcs: list = [self.query_account, self.query_order, self.query_position, self.query_trade]
-        self.after_connect: Optional[callable] = None
+        self.after_connect: Callable | None = None
         self.currency: Currency = Currency.USD
         self.symbol_names = {}
         self.today_trading_session = None
@@ -160,7 +157,7 @@ class LongBridgeGateway(BaseGateway):
     def process_tick_event(self, event: Event) -> None:
         self.update_position_on_tick(event.data)
 
-    def handle_quote(self, symbol: str, quote: Union[PushQuote, SecurityQuote]):
+    def handle_quote(self, symbol: str, quote: PushQuote | SecurityQuote):
         depth = self.quote_ctx.realtime_depth(symbol)
         s, ex = convert_symbol_lb2vt(symbol)
         tick = TickData(
@@ -179,11 +176,11 @@ class LongBridgeGateway(BaseGateway):
         )
         d: dict = tick.__dict__
         for bid in depth.bids:
-            d["bid_price_%s" % bid.position] = float(bid.price)
-            d["bid_volume_%s" % bid.position] = float(bid.volume)
+            d[f"bid_price_{bid.position}"] = float(bid.price)
+            d[f"bid_volume_{bid.position}"] = float(bid.volume)
         for ask in depth.asks:
-            d["ask_price_%s" % ask.position] = float(ask.price)
-            d["ask_volume_%s" % ask.position] = float(ask.volume)
+            d[f"ask_price_{ask.position}"] = float(ask.price)
+            d[f"ask_volume_{ask.position}"] = float(ask.volume)
 
         if quote.last_done <= 0:
             self.write_log(f"{symbol} last_done <= 0, may be a bug? {quote}")
@@ -219,12 +216,21 @@ class LongBridgeGateway(BaseGateway):
             self.main_engine.trading_session = self.trading_session
 
         for func in self.query_funcs:
-            func()
+            try:
+                func()
+            except Exception:
+                # 初始查询可能因网络时序失败，记录但不中断连接
+                self.write_log("初始查询异常（{}）：\n{}".format(
+                    getattr(func, "__name__", func), traceback.format_exc()))
 
         if self.after_connect is not None:
-            self.after_connect()
+            try:
+                self.after_connect()
+            except Exception:
+                # after_connect 里的订阅/查询可能因网络时序失败，记录但不中断服务
+                self.write_log("after_connect 触发异常：\n" + traceback.format_exc())
 
-    def trading_session(self) -> Union[Tuple[time, time], None]:
+    def trading_session(self) -> tuple[time, time] | None:
         today = datetime.today()
         if self.today_trading_session is not None:
             session_date, session = self.today_trading_session
@@ -241,19 +247,33 @@ class LongBridgeGateway(BaseGateway):
     def close(self) -> None:
         pass
 
-    def subscribe_symbols(self, symbols: List[str]) -> None:
+    def subscribe_symbols(self, symbols: list[str]) -> None:
+        """
+        订阅行情（完整模式）。
+
+        1. 加载合约信息（名称、每手股数等）推送给 vnpy
+        2. 订阅实时报价（Quote）、盘口深度（Depth）、日K、周K
+        会消耗长桥行情订阅额度。
+        """
         self.write_log("subscribe_symbols")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
             symbol not in self.symbol_names])
 
-    def load_contract(self, symbols: List[str]) -> None:
+    def load_contract(self, symbols: list[str]) -> None:
+        """
+        仅加载合约信息，不订阅行情。
+
+        只获取合约基本信息（名称、每手股数等）推送给 vnpy，
+        不订阅实时行情数据，不消耗行情额度。
+        适用于只需要交易、不需要实时报价的场景。
+        """
         self.write_log("load_contract")
         self.subscribe_batch([
             SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
             symbol not in self.symbol_names], contract_only=True)
 
-    def subscribe_batch(self, reqs: List[SubscribeRequest], contract_only=False) -> None:
+    def subscribe_batch(self, reqs: list[SubscribeRequest], contract_only=False) -> None:
         if not reqs:
             return
         symbols = [convert_symbol_vt2lb(req.symbol, req.exchange) for req in reqs]
@@ -262,7 +282,7 @@ class LongBridgeGateway(BaseGateway):
             contract = ContractData(
                 symbol=s,
                 exchange=ex,
-                name=info.name_en,
+                name=info.name_cn or info.name_en,
                 product=Product.EQUITY,
                 size=info.lot_size,
                 pricetick=0.01,
@@ -296,11 +316,23 @@ class LongBridgeGateway(BaseGateway):
         if pending_orders:
             self.write_log(f"ignore order of {symbol} for there is pending order")
             return pending_orders[0].order_id
+        # 市价单不传 price，止损单传 trigger_price
+        order_type = ORDER_TYPE_VN2LB[req.type]
+        submitted_price = None
+        trigger_price = None
+        if req.type == OrderTypeVN.STOP:
+            trigger_price = Decimal(req.price)
+        elif req.type == OrderTypeVN.MARKET:
+            pass  # 市价单不设价格
+        else:
+            submitted_price = Decimal(req.price)
+
         resp = self.trade_ctx.submit_order(
-            symbol, ORDER_TYPE_VN2LB[req.type],
+            symbol, order_type,
             side=OrderSide.Buy if req.direction == Direction.LONG else OrderSide.Sell,
             submitted_quantity=int(req.volume),
-            submitted_price=Decimal(req.price),
+            submitted_price=submitted_price,
+            trigger_price=trigger_price,
             time_in_force=TimeInForceType.Day,
             outside_rth=OutsideRTH.RTHOnly,
             remark=req.reference,
@@ -310,6 +342,7 @@ class LongBridgeGateway(BaseGateway):
 
     def cancel_order(self, req: CancelRequest) -> None:
         self.write_log(f"order of {req.symbol} cancel, order_id={req.orderid}")
+        assert self.trade_ctx is not None
         self.trade_ctx.cancel_order(req.orderid)
 
     def query_order(self) -> None:
@@ -324,10 +357,10 @@ class LongBridgeGateway(BaseGateway):
                 exchange=ex,
                 orderid=order.order_id,
                 type=ORDER_TYPE_LB2VT[str(order.order_type)],
-                price=order.price if status not in [Status.PARTTRADED, Status.ALLTRADED] else float(
+                price=float(order.price or 0) if status not in [Status.PARTTRADED, Status.ALLTRADED] else float(
                     "nan") if order.executed_price is None else float(order.executed_price),
-                volume=order.quantity,
-                traded=order.executed_quantity,
+                volume=float(order.quantity),
+                traded=float(order.executed_quantity),
                 status=status,
                 datetime=order.submitted_at,
                 reference=order.remark,
@@ -371,24 +404,23 @@ class LongBridgeGateway(BaseGateway):
     def query_position(self) -> None:
         position_ids = set()
         if self.main_engine:
-            position_ids = set([p.vt_positionid for p in self.main_engine.get_all_positions()]) # 获取“本地已经缓存的所有持仓”
+            position_ids = {p.vt_positionid for p in self.main_engine.get_all_positions()}  # 获取”本地已经缓存的所有持仓”
 
-        self.write_log(f"查询持仓，当前本地缓存的持仓ID：{json.dumps(position_ids, default=str, ensure_ascii=False)}")
+        # self.write_log(f"查询持仓，当前本地缓存的持仓ID：{json.dumps(position_ids, default=str, ensure_ascii=False)}")
 
 
         for channel in self.trade_ctx.stock_positions().channels:
-            self.write_log(f"查询持仓，长桥账户持仓：{channel.positions}")
+            # self.write_log(f"查询持仓，长桥账户持仓：{channel.positions}")
             symbols = [stock.symbol for stock in channel.positions]   # 长桥的期权行情需要购买，如果持仓有期权，可能会报错.
-            self.write_log(f"查询持仓，长桥账户持仓的股票代码：{symbols}，准备订阅这些股票的行情以获取最新价格")
+            # self.write_log(f"查询持仓，长桥账户持仓的股票代码：{symbols}，准备订阅这些股票的行情以获取最新价格")
 
             self.subscribe_batch([
                 SubscribeRequest(*convert_symbol_lb2vt(symbol)) for symbol in symbols if
                 symbol not in self.symbol_names])
 
             quotes = self.quote_ctx.realtime_quote(symbols)
-            self.write_log(f"查询持仓，获取到的最新行情：{quotes}，准备转换成 PositionData 并推送")
+            # self.write_log(f"查询持仓，获取到的最新行情：{quotes}，准备转换成 PositionData 并推送")
 
-            print(list(zip(quotes, channel.positions)))
             for quote, stock in zip(quotes, channel.positions):
                 assert quote.symbol == stock.symbol
                 s, ex = convert_symbol_lb2vt(stock.symbol)
@@ -430,32 +462,47 @@ class LongBridgeGateway(BaseGateway):
             self.on_position(position)
             break
 
-    def query_history(self, req: HistoryRequestVN) -> List[BarData]:
-        count: int = 1000
-        tail_mode = False
-        if hasattr(req, "tail"):
-            if req.tail is not None:
-                count = req.tail
-                tail_mode = True
+    def query_history(self, req: HistoryRequestVN) -> list[BarData]:
+        # tail 模式：取最近 N 根，用实时 K 线接口（专为此设计）
+        if hasattr(req, "tail") and req.tail is not None:
+            candlesticks = self.quote_ctx.realtime_candlesticks(
+                convert_symbol_vt2lb(req.symbol, req.exchange),
+                INTERVAL_MAP[req.interval], req.tail)
+            return [convert_candlestick_bar(bar, req, self.gateway_name) for bar in candlesticks]
 
-        candlesticks = self.quote_ctx.realtime_candlesticks(
-            convert_symbol_vt2lb(req.symbol, req.exchange), INTERVAL_MAP[req.interval], count)
+        # 历史模式：按日期范围取，用 history_candlesticks_by_date 分页突破 1000 根限制
+        symbol = convert_symbol_vt2lb(req.symbol, req.exchange)
+        interval = INTERVAL_MAP[req.interval]
 
         result = []
-        for bar in candlesticks:
-            if not tail_mode:
+        end = req.end
+        while True:
+            candlesticks = self.quote_ctx.history_candlesticks_by_date(
+                symbol, interval, AdjustType.ForwardAdjust, start=req.start, end=end)
+            if not candlesticks:
+                break
+
+            for bar in candlesticks:
                 timestamp = bar.timestamp
                 if req.end is not None and not (req.start <= timestamp <= req.end):
                     continue
                 if req.end is None and not (req.start <= timestamp):
                     continue
-            result.append(convert_candlestick_bar(bar, req, self.gateway_name))
+                result.append(convert_candlestick_bar(bar, req, self.gateway_name))
+
+            if len(candlesticks) < 1000:
+                break
+            earliest = candlesticks[0].timestamp
+            if earliest <= req.start:
+                break
+            end = earliest - timedelta(days=1)
+
+        result.sort(key=lambda bar: bar.datetime)
         return result
 
 
-def convert_symbol_lb2vt(code: str) -> (str, Exchange):
+def convert_symbol_lb2vt(code: str) -> tuple[str, Exchange]:
     symbol, region = code.rsplit(".", 1)
-    print(symbol, region)
     exchange = EXCHANGE_LB2VT[region]
     return symbol, exchange
 
@@ -466,7 +513,9 @@ def convert_symbol_vt2lb(symbol, exchange) -> str:
 
 
 def convert_candlestick_bar(candle: Candlestick, req: HistoryRequest, gateway_name: str):
-    timestamp = candle.timestamp  # .replace(tzinfo=zoneinfo.ZoneInfo(get_localzone_name()))
+    timestamp = candle.timestamp
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.astimezone(zoneinfo.ZoneInfo(get_localzone_name())).replace(tzinfo=None)
     return BarData(
         symbol=req.symbol,
         exchange=req.exchange,

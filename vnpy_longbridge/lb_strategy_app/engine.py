@@ -66,13 +66,19 @@ STOP_STATUS_MAP: dict[Status, StopOrderStatus] = {
 }
 
 
+# 策略实例存储目录（随项目版本管理）
+# 用包文件位置定位项目根，避免依赖启动时的工作目录（PyCharm 启动 cwd 是 script/）
+STRATEGY_INSTANCE_DIR = Path(__file__).resolve().parent.parent.parent.joinpath("strategy_instances")
+STRATEGY_INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
+
+
 class CtaEngine(BaseEngine):
     """"""
 
     engine_type: EngineType = EngineType.LIVE  # live trading engine
 
-    setting_filename: str = "cta_strategy_setting.json"
-    data_filename: str = "cta_strategy_data.json"
+    setting_filename: str = str(STRATEGY_INSTANCE_DIR.joinpath("cta_strategy_setting.json"))
+    data_filename: str = str(STRATEGY_INSTANCE_DIR.joinpath("cta_strategy_data.json"))
 
     def __init__(self, main_engine: MainEngine, event_engine: EventEngine) -> None:
         """"""
@@ -357,6 +363,37 @@ class CtaEngine(BaseEngine):
             price,
             volume,
             OrderType.LIMIT,
+            lock,
+            net
+        )
+
+    def send_market_order(
+        self,
+        strategy: CtaTemplate,
+        direction: Direction,
+        offset: Offset,
+        volume: float,
+        lock: bool,
+        net: bool
+    ) -> list:
+        """
+        Send a market order to server.
+        """
+        contract: ContractData | None = self.main_engine.get_contract(strategy.vt_symbol)
+        if not contract:
+            self.write_log(_("委托失败，找不到合约：{}").format(strategy.vt_symbol), strategy)
+            return []
+
+        volume = round_to(volume, contract.min_volume)
+
+        return self.send_server_order(
+            strategy,
+            contract,
+            direction,
+            offset,
+            0,
+            volume,
+            OrderType.MARKET,
             lock,
             net
         )
@@ -792,10 +829,14 @@ class CtaEngine(BaseEngine):
         Load strategy class from source code.
         """
         path1: Path = Path(__file__).parent.joinpath("strategies")
-        self.load_strategy_class_from_folder(path1, "vnpy_ctastrategy.strategies")
+        self.load_strategy_class_from_folder(path1, "vnpy_longbridge.lb_strategy_app.strategies")
 
         path2: Path = Path.cwd().joinpath("strategies")
         self.load_strategy_class_from_folder(path2, "strategies")
+
+        self.write_log(_("加载策略路径1{}").format(path1))
+        self.write_log(_("加载策略路径2{}").format(path2))
+
 
     def load_strategy_class_from_folder(self, path: Path, module_name: str = "") -> None:
         """
@@ -821,7 +862,7 @@ class CtaEngine(BaseEngine):
             for name in dir(module):
                 value = getattr(module, name)
                 if (
-                    isinstance(value, type)
+                     isinstance(value, type)
                     and issubclass(value, CtaTemplate)
                     and value not in {CtaTemplate, TargetPosTemplate}
                 ):

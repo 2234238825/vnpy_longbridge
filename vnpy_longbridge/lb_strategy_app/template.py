@@ -161,6 +161,23 @@ class CtaTemplate(ABC):
             net
         )
 
+    def buy_market(
+        self,
+        volume: float,
+        lock: bool = False,
+        net: bool = False
+    ) -> list:
+        """
+        Send market order to open a long position.
+        """
+        return self.send_market_order(
+            Direction.LONG,
+            Offset.OPEN,
+            volume,
+            lock,
+            net
+        )
+
     def sell(
         self,
         price: float,
@@ -240,6 +257,25 @@ class CtaTemplate(ABC):
         if self.trading:
             vt_orderids: list = self.cta_engine.send_order(
                 self, direction, offset, price, volume, stop, lock, net
+            )
+            return vt_orderids
+        else:
+            return []
+
+    def send_market_order(
+        self,
+        direction: Direction,
+        offset: Offset,
+        volume: float,
+        lock: bool = False,
+        net: bool = False
+    ) -> list:
+        """
+        Send a new market order.
+        """
+        if self.trading:
+            vt_orderids: list = self.cta_engine.send_market_order(
+                self, direction, offset, volume, lock, net
             )
             return vt_orderids
         else:

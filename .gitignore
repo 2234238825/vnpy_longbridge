@@ -129,6 +129,9 @@ ENV/
 env.bak/
 venv.bak/
 
+# 运行时策略配置
+strategy_instances/
+
 # Spyder project settings
 .spyderproject
 .spyproject
