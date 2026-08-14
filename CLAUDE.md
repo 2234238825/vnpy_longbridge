@@ -5,9 +5,6 @@
 * 简单稳定
 * 优先直接实现
 
-# Tech Stack
-
-
 # Directory Structure
 
 gateway/      行情网关
@@ -27,13 +24,6 @@ tests/        测试
 * Python 版本固定 3.12
 * 使用 pathlib
 
-# Build
-
-make -j8
-
-# Test
-
-pytest tests/
 
 # Git Workflow
 
