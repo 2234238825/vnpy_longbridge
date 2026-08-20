@@ -910,7 +910,8 @@ class BacktestingEngine:
         Send a market order. 回测无真实市价，按当前 bar 开盘价近似成限价单。
         """
         price = self.bar.open_price
-        return self.send_limit_order(direction, offset, price, volume)
+        vt_orderid = self.send_limit_order(direction, offset, price, volume)
+        return [vt_orderid]
 
     def send_stop_order(
         self,

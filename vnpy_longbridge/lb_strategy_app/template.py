@@ -178,6 +178,23 @@ class CtaTemplate(ABC):
             net
         )
 
+    def sell_market(
+        self,
+        volume: float,
+        lock: bool = False,
+        net: bool = False
+    ) -> list:
+        """
+        Send market order to close a long position.
+        """
+        return self.send_market_order(
+            Direction.SHORT,
+            Offset.CLOSE,
+            volume,
+            lock,
+            net
+        )
+
     def sell(
         self,
         price: float,
