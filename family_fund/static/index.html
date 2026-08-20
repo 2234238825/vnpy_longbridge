@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>家庭基金</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, "Microsoft YaHei", sans-serif; }
+    body { max-width: 900px; margin: 40px auto; padding: 0 20px; background:#0d1117; color:#c9d1d9; }
+    input, button { padding: 8px; margin: 4px; border:1px solid #30363d; border-radius:6px; background:#161b22; color:inherit; }
+    button { cursor:pointer; background:#1f6feb; border:0; }
+    .card { padding:18px; margin:14px 0; border:1px solid #30363d; border-radius:8px; background:#161b22; }
+    #message { color:#8b949e; white-space:pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>家庭基金</h1>
+  <p>第一阶段：手工录入账务。创建基金后填入基金 ID，即可查看总资产、净值和成员份额。</p>
+  <section class="card">
+    <input id="fund-id" type="number" min="1" placeholder="基金 ID">
+    <button id="load">加载 Dashboard</button>
+  </section>
+  <section class="card" id="overview">尚未加载基金。</section>
+  <section class="card" id="members"></section>
+  <p id="message"></p>
+  <script>
+    const money = value => Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    async function load() {
+      const id = document.querySelector('#fund-id').value;
+      if (!id) return;
+      const message = document.querySelector('#message');
+      try {
+        const response = await fetch(`/api/funds/${id}/dashboard`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || '加载失败');
+        document.querySelector('#overview').innerHTML = `<h2>${data.fund.name}</h2>
+          <p>当前净值：<strong>${data.fund.nav}</strong></p>
+          <p>总资产：${money(data.fund.net_asset)}　总份额：${money(data.fund.shares)}</p>`;
+        document.querySelector('#members').innerHTML = '<h2>成员份额</h2>' + data.members.map(member =>
+          `<p>${member.name}：${money(member.shares)} 份，当前资产 ${money(member.current_value)}</p>`).join('');
+        message.textContent = '';
+      } catch (error) { message.textContent = error.message; }
+    }
+    document.querySelector('#load').onclick = load;
+  </script>
+</body>
+</html>

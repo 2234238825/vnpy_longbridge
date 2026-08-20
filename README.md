@@ -134,7 +134,7 @@ if __name__ == "__main__":
 
 `tests/` 目录到现在都是空的——CLAUDE.md 里写着 `pytest tests/`，其实根本没有测试，全靠手工验证，每次改代码都有点心虚。
 
-订单和成交目前靠轮询（约 4 秒一次），实时性有限。长桥如果能做推送就好了，这块还没调研。
+订单和成交目前靠轮询（约 4 秒一次），实时性有限。长桥 SDK 其实支持订单推送回调（`TradeContext.set_on_order_changed`），只是还没接入 gateway——接入后可以去掉轮询，实时性大幅提升。
 
 ### 基础设施
 
@@ -145,3 +145,15 @@ if __name__ == "__main__":
 - **分支**：基于 `feature/strategy` 分支开发
 - **规范**：见 `CLAUDE.md` —— Python 3.12、使用 pathlib、优先简单实现、不允许无意义抽象、修改前先给 implementation plan
 - **文档**：源码分析见 `script/vnpy_longbridge源码分析.md`
+
+## 家庭基金子系统（MVP）
+
+`family_fund` 是项目根目录下的独立包：复用 Python 环境和 Web 技术栈，但不依赖策略、回测或网关。它用于家庭成员份额、交易账本、持仓和净值计算；Longbridge 自动同步留待第二阶段。
+
+启动本地页面：
+
+```powershell
+uvicorn family_fund.main:app --reload
+```
+
+访问 `http://127.0.0.1:8102`，接口文档在 `/docs`。首次启动会在 `data/family_fund.db` 创建独立 SQLite 账本。当前未实现 JWT/RBAC，仅限本机开发使用。

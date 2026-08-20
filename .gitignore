@@ -132,6 +132,9 @@ venv.bak/
 # 运行时策略配置
 strategy_instances/
 
+# 家庭基金本地 SQLite 账本
+data/family_fund.db*
+
 # Spyder project settings
 .spyderproject
 .spyproject
